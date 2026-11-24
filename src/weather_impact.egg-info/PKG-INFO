@@ -1,0 +1,715 @@
+Metadata-Version: 2.4
+Name: weather-impact
+Version: 0.1.0
+Summary: ML core for weather impact analysis on crop yield and environmental risk
+License: MIT
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pandas>=2.2
+Requires-Dist: numpy>=1.26
+Requires-Dist: scikit-learn>=1.5
+Requires-Dist: xgboost>=2.0
+Requires-Dist: shap>=0.45
+Requires-Dist: joblib>=1.4
+Requires-Dist: streamlit>=1.50
+Requires-Dist: plotly>=5.20
+Requires-Dist: certifi>=2024.7
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: ruff>=0.5; extra == "dev"
+Dynamic: license-file
+
+# Weather Impact Analysis for Agriculture
+
+A production-quality machine learning platform that predicts crop yield from
+weather and field conditions, scores environmental risk, simulates climate
+scenarios, and explains every prediction with real SHAP values — all from a
+single-page Streamlit application backed by a clean Python ML package.
+
+---
+
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [Running the App](#running-the-app)
+3. [Application Pages](#application-pages)
+4. [Dataset](#dataset)
+5. [Machine Learning Model](#machine-learning-model)
+6. [Risk Score](#risk-score)
+7. [SHAP Explainability](#shap-explainability)
+8. [Project Structure](#project-structure)
+9. [Python API](#python-api)
+10. [Scripts Reference](#scripts-reference)
+11. [Development](#development)
+12. [Requirements](#requirements)
+
+---
+
+## Quick Start
+
+Requires **Python 3.10 or newer**.
+
+```bash
+# 1. Clone and enter the project
+cd weather-analysis-live
+
+# 2. Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\Activate.ps1
+
+# 3. Install the package and all dependencies
+pip install -e ".[dev]"
+
+# 4. Train the model (uses data/raw/crop_weather_records.csv automatically)
+python scripts/train_model.py
+
+# 5. Launch the app
+streamlit run app.py
+```
+
+Open **http://localhost:8501** in your browser.
+
+---
+
+## Running the App
+
+```bash
+streamlit run app.py
+```
+
+The entire application lives in a **single file** (`app.py`). Navigation is
+driven by `st.session_state.view` — no Streamlit multi-page folder structure is
+used. The sidebar renders navigation buttons and, for prediction-related views,
+a Field Conditions panel with live sliders.
+
+---
+
+## Application Pages
+
+The sidebar contains 8 views in this exact order:
+
+### 1. Home
+
+The landing page. Shows:
+
+- **4 KPI metrics** — Model Accuracy, R² Score, Records Analysed, Saved Scenarios (all
+  computed live from the model metadata and dataset).
+- **Platform Overview** — 4 stat cards: number of crop varieties, states, districts, and
+  year coverage — all derived dynamically from the dataset, never hardcoded.
+- **Explore grid** — 4 navigation cards (Dashboard, Yield Prediction, What-If Simulator,
+  Risk Score) with working launch buttons.
+- **How it works** — 4-step guide from setting conditions to acting on results.
+- **Supported Crops** — a live table built from `CROP_PROFILES` showing every crop/season
+  combination with its optimal temperature, rainfall, humidity, and reference yield.
+
+---
+
+### 2. Dashboard
+
+Historical data explorer with cascading filters and 4 live Plotly charts.
+
+**Filters (all options derived from the dataset):**
+- State → District cascade (selecting a state narrows the district list)
+- Crop multi-select
+- Season multi-select
+- Year range slider
+
+**KPI strip (5 metrics, recalculated on every filter change):**
+Records · Avg Yield (t/ha) · Avg Rainfall (mm) · Avg Temp (°C) · Avg Humidity (%)
+
+**Charts (2 × 2 grid, all Plotly, white-background):**
+
+| Chart | Type | Description |
+|---|---|---|
+| Yield trend by crop | Line + markers | Average yield per year, one line per crop |
+| Rainfall and yield | Scatter | 2,000-point sample, coloured by crop |
+| Yield spread by season | Box plot | Distribution per season, grouped by crop |
+| Avg yield: crop × season | Heatmap | Mean t/ha per cell, text annotations |
+
+Filtered records are available in an expander with a **Download CSV** button.
+
+---
+
+### 3. Yield Prediction
+
+Set field conditions in the sidebar. The model predicts instantly.
+
+**Sidebar Field Conditions:**
+- Crop selectbox (derived from dataset)
+- Season selectbox (filtered by crop)
+- Temperature slider (°C) — prefilled to crop optimal midpoint
+- Seasonal Rainfall slider (mm)
+- Relative Humidity slider (%)
+
+**Output:**
+- **4 KPI metrics** — Predicted Yield (t/ha), Share of Potential (%), Risk Score
+  (0–100), Risk Level (Low / Moderate / High / Severe)
+- **Risk Gauge** — Plotly Indicator chart with coloured threshold zones
+- **SHAP Waterfall** — live SHAP values for Temperature, Rainfall, and Humidity,
+  showing how each weather factor pushed the prediction above or below the crop
+  baseline. Green bars = positive contribution, red bars = negative.
+- **Plain English Summary** — NLG sentence generated from the top-2 SHAP drivers,
+  e.g. *"The predicted yield of 2.14 t/ha is below the crop baseline (3.07 t/ha),
+  primarily reduced by Rainfall (−0.42 t/ha), and reduced by Temperature (−0.08 t/ha)."*
+- **Recommendations** — plain-language mitigation advice from the risk scorer
+- **Save** — text input + button to save this prediction to Saved Scenarios
+
+---
+
+### 4. What-If Simulator
+
+Start from your current field conditions and apply weather deltas to compare
+baseline vs scenario.
+
+**Controls:**
+- Temperature change slider (°C): −10 to +10
+- Rainfall change slider (%): −90 to +200
+- Humidity change slider (pp): −50 to +50
+- Reset button (via `on_click` callback to avoid Streamlit widget key errors)
+- **4 preset buttons:** Heatwave (+3 °C, −20% rain), Drought (−50% rain),
+  Heavy Monsoon (+50% rain), Cold Spell (−5 °C)
+
+**Output:**
+- **4 comparison metrics** — Baseline Yield, Scenario Yield (with Δ%), Baseline
+  Risk, Scenario Risk (with Δ pts, inverse colour)
+- Zero-delta info banner when all sliders are at zero
+- **Grouped bar chart** — Baseline vs Scenario for Yield and Risk side-by-side
+- **Sensitivity line chart** — Yield across the full temperature delta range, with
+  "Now" marker at the current slider position
+- **Scenario Result card** — exact temperature/rainfall/humidity values with deltas
+- **Delta SHAP Breakdown** — when any slider is non-zero: computes SHAP for both
+  baseline and scenario, subtracts them, renders a "Which factor caused the yield
+  change?" waterfall. Exactly identifies which of the three sliders drove the
+  prediction shift.
+- **NLG explanation** — e.g. *"The −0.38 t/ha shift in yield was primarily driven
+  by Rainfall, which reduced the yield by 0.38 t/ha compared to your baseline."*
+- **Save** — save the scenario result to Saved Scenarios
+
+---
+
+### 5. Risk Score
+
+Dedicated environmental risk analysis page.
+
+**Risk Score Formula:**
+
+```
+score = 100 × (0.40 × temp_severity + 0.35 × rain_severity + 0.25 × hum_severity)
+```
+
+Where `severity = min(1.0, distance_outside_optimal_band / band_width)`.
+
+**Output:**
+- **Risk Gauge** — Plotly Indicator with delta vs 50 (the neutral midpoint)
+- **Risk badge** — Low / Moderate / High / Severe with colour coding
+- **Factor Detail table** — per-factor current value, optimal range, status
+  (OK / LOW / HIGH), and severity %
+- **Severity bar chart** — horizontal bars coloured green / amber / red by severity
+- **Recommendations** — plain-language advice per stressed factor, most severe first
+- **Mitigation Budget Planner** — number input for total budget (₹), editable
+  `st.data_editor` table with Actions, Cost/unit, Risk reduction/unit, and a
+  user-editable Units column. Four live metrics update as you edit:
+  Total Spend · Remaining Budget · Risk Reduction · Projected Risk
+
+**Risk levels:**
+
+| Score | Level |
+|---|---|
+| 0 – 24 | Low |
+| 25 – 49 | Moderate |
+| 50 – 74 | High |
+| 75 – 100 | Severe |
+
+---
+
+### 6. Explainability Engine
+
+A full XAI dashboard powered by real SHAP values. The dataset-level SHAP
+computation runs once per session and is cached for 1 hour.
+
+#### Section 1 — Global Feature Importance
+
+Horizontal bar chart of **mean absolute SHAP values** per original feature,
+computed across 400 sampled rows. All 10 model features are shown and ranked.
+Features with the longest bars have the most influence on yield predictions
+across the dataset.
+
+#### Section 2 — Interactive Dependence Plot
+
+A `st.selectbox` lets you pick Temperature, Rainfall, or Humidity. The scatter
+plot shows:
+- **X-axis** — the actual feature value for each sample
+- **Y-axis** — the SHAP value (how much that specific value pushed the prediction
+  up or down)
+- **Dot colour** — green if the SHAP value is positive, red if negative
+
+This reveals the exact threshold where a weather factor transitions from helpful
+to harmful — for example, the rainfall level below which yield starts to drop.
+
+#### Section 3 — SHAP Distribution (Beeswarm)
+
+A Plotly-based beeswarm equivalent:
+- One strip per feature on the Y-axis
+- Each dot is one sample; X-axis is its SHAP value
+- Dot colour encodes the actual feature value: **blue = low value, red = high value**
+- Y-axis jitter separates overlapping points
+
+Shows in one view which features have high variance in impact (wide spread) vs
+consistent impact (narrow cluster).
+
+#### Section 4 — Model Card
+
+4 metrics: Algorithm · Accuracy · R² Score · Typical Error (MAE). An expandable
+Details section covers target variable, feature list, training split, accuracy
+metric rationale, training date, and library versions.
+
+---
+
+### 7. Saved Scenarios
+
+Session-state scenario management.
+
+- **3 summary metrics** — Saved Scenarios count, Best Yield, Lowest Risk
+- **Card grid** — 3-column layout showing each saved scenario with crop, season,
+  risk badge, yield, risk score, and weather values
+- **Compare chart** — select up to 4 scenarios, side-by-side bar charts for
+  Predicted Yield and Risk Score (Plotly subplots)
+- **Data table** — full `st.dataframe` of all saved records
+- **Delete** — multi-select + "Delete selected" button
+- **Export** — "Download all as CSV" button
+
+When empty, shows an info message and quick-nav buttons to Yield Prediction and
+What-If Simulator.
+
+---
+
+### 8. Live Weather
+
+Developer placeholder. Shows a district selectbox and location search input, then
+immediately renders a static `st.error` with the SSL certificate error message.
+No live API calls are made. This page is ready to be wired up to the
+`weather_impact.weather.open_meteo` module when SSL certificates are configured.
+
+---
+
+## Dataset
+
+**Primary:** `data/raw/crop_weather_records.csv`
+
+| Property | Value |
+|---|---|
+| Rows | 31,365 |
+| Columns | year, district, state, crop_type, season, temperature_c, rainfall_mm, humidity_pct, yield_t_per_ha |
+| States | 19 (Andhra Pradesh, Assam, Bihar, Chhattisgarh, Gujarat, Haryana, Himachal Pradesh, Jharkhand, Karnataka, Kerala, Madhya Pradesh, Maharashtra, Punjab, Rajasthan, Tamil Nadu, Telangana, Uttar Pradesh, Uttarakhand, West Bengal) |
+| Districts | 229 |
+| Crops | Groundnut, Maize, Ragi, Rice, Wheat |
+| Seasons | Kharif, Rabi |
+| Year range | 1980 – 2017 |
+| Yield range | 0.004 – 21.4 t/ha (mean: 1.65 t/ha) |
+
+**Fallback:** `data/sample/crop_weather_synthetic.csv` — a reproducible synthetic
+dataset used automatically when the raw file is absent.
+
+**To use real data**, place a CSV at `data/raw/crop_weather_records.csv` with the
+columns listed above. Supported crop/season combinations are defined in
+`src/weather_impact/config/crops.py`.
+
+---
+
+## Machine Learning Model
+
+### Algorithm
+
+Random Forest Regressor inside a scikit-learn `Pipeline` with a `ColumnTransformer`
+preprocessor (StandardScaler for numerics, OneHotEncoder for categoricals).
+
+### Features
+
+| Feature | Type | Description |
+|---|---|---|
+| `year` | Numeric | Calendar year of observation |
+| `temperature_c` | Numeric | Seasonal average temperature (°C) |
+| `rainfall_mm` | Numeric | Seasonal total rainfall (mm) |
+| `humidity_pct` | Numeric | Average relative humidity (%) |
+| `temp_humidity_index` | Numeric (derived) | temperature × humidity / 100 |
+| `dist_crop_mean_yield` | Numeric (derived) | Per district × crop historical mean yield |
+| `crop_type` | Categorical | One of 5 crop varieties |
+| `season` | Categorical | Kharif or Rabi |
+| `district` | Categorical | One of 229 districts |
+| `state` | Categorical | One of 19 states |
+
+### Training
+
+- **Split:** 80% train / 20% test, random state 42
+- **Target:** `yield_t_per_ha` (clipped at 0 — negative yields are not physical)
+
+### Current Metrics
+
+| Metric | Value |
+|---|---|
+| R² | 0.827 |
+| Accuracy (100 × (1 − WAPE)) | 85.3 % |
+| MAE | 0.242 t/ha |
+| RMSE | 0.419 t/ha |
+| MAPE | 21.0 % |
+| WAPE | 14.7 % |
+
+**Why WAPE over MAPE?** Near-zero yields (e.g. 0.004 t/ha) would cause MAPE to
+explode even for small absolute errors. WAPE (Weighted Absolute Percentage Error)
+= Σ|actual − predicted| / Σ|actual| is robust to near-zero values and is the
+primary accuracy metric throughout the project.
+
+### Retraining
+
+```bash
+python scripts/train_model.py
+```
+
+Saves `models/saved/yield_model.joblib` (the pipeline) and
+`models/saved/yield_model.json` (metadata + metrics). The app reads both on
+startup — no restart needed if Streamlit's file watcher is active.
+
+---
+
+## Risk Score
+
+Computed entirely from agronomic crop profiles in
+`src/weather_impact/config/crops.py`. No model inference is required.
+
+### Method
+
+For each of the three weather factors:
+
+```
+distance = max(0, value − optimal_high)  if above band
+         = max(0, optimal_low − value)   if below band
+         = 0                              if within band
+
+severity = min(1.0, distance / (optimal_high − optimal_low))
+
+score = 100 × (0.40 × temp_severity
+              + 0.35 × rain_severity
+              + 0.25 × hum_severity)
+```
+
+### Supported Crop Profiles
+
+| Crop | Season | Optimal Temp (°C) | Optimal Rain (mm) | Optimal Humidity (%) | Ref. Yield (t/ha) |
+|---|---|---|---|---|---|
+| Rice | Kharif | 22 – 32 | 800 – 1500 | 60 – 85 | 5.5 |
+| Maize | Kharif | 18 – 30 | 500 – 900 | 50 – 75 | 6.0 |
+| Maize | Rabi | 16 – 28 | 150 – 350 | 40 – 65 | 5.0 |
+| Ragi | Kharif | 20 – 30 | 400 – 800 | 50 – 70 | 2.5 |
+| Groundnut | Kharif | 22 – 32 | 450 – 900 | 50 – 75 | 2.0 |
+| Groundnut | Zaid | 25 – 35 | 100 – 300 | 40 – 65 | 1.8 |
+| Wheat | Rabi | 12 – 25 | 100 – 300 | 40 – 70 | 3.5 |
+
+---
+
+## SHAP Explainability
+
+The project uses `shap.TreeExplainer` applied to the Random Forest's underlying
+regressor (extracted from the scikit-learn pipeline). Three distinct SHAP
+computations are performed:
+
+### 1. Single-row SHAP (Yield Prediction, What-If, Explainability)
+
+```python
+from weather_impact.explainability.shap_explainer import explain_prediction
+
+contribs, base_value = explain_prediction(model, pd.DataFrame([inputs]))
+# contribs: DataFrame with columns [feature, value, shap_value]
+# base_value: float — model's expected value (dataset mean prediction)
+```
+
+One-hot encoded columns (e.g. `cat__crop_type_Rice`) are automatically summed
+back to their original feature name (`crop_type`) so users see one value per factor.
+
+### 2. Dataset-level SHAP (Explainability Engine)
+
+```python
+# In app.py — cached for 1 hour
+ds = _shap_dataset(DEFAULT_MODEL_NAME)
+# ds["shap_matrix"]: ndarray (n_samples, n_encoded_features)
+# ds["orig_names"]:  list[str] — original feature per encoded column
+# ds["X_raw"]:       DataFrame — untransformed feature values
+# ds["base_value"]:  float
+```
+
+Computed on 400 randomly sampled rows. Used for the global importance bar chart,
+dependence scatter, and beeswarm distribution.
+
+### 3. Delta SHAP (What-If Simulator)
+
+```python
+shap_baseline = _shap_one(baseline_inputs)   # {feature: shap_value}
+shap_scenario = _shap_one(scenario_inputs)
+delta = {f: shap_scenario[f] - shap_baseline[f] for f in weather_features}
+```
+
+The delta waterfall shows exactly which of the three weather sliders caused the
+yield change — not just the direction of the total change.
+
+### Technical Note
+
+Standard `shap.plots` render as matplotlib figures, which break the Plotly-based
+UI. This project extracts raw values from the `shap.Explanation` object and
+renders all SHAP visualisations using `plotly.graph_objects` with the project's
+white-card aesthetic.
+
+---
+
+## Project Structure
+
+```
+app.py                              Single-page Streamlit application (entry point)
+requirements.txt                    Core dependencies
+requirements-dev.txt                Dev/test dependencies
+
+src/weather_impact/
+  config/
+    settings.py                     All paths, column names, training constants
+    crops.py                        Crop profiles: optimal ranges, reference yields
+    locations.py                    District coordinate data
+
+  data/
+    loader.py                       CSV loading
+    cleaning.py                     Validation, outlier removal, type coercion
+    validation.py                   Schema checks for prediction inputs
+    synthetic.py                    Synthetic dataset generator (seed 42)
+
+  features/
+    engineering.py                  Feature engineering: temp_humidity_index,
+                                    dist_crop_mean_yield, prepare_features()
+
+  models/
+    train.py                        Model training loop (Random Forest + XGBoost)
+    evaluate.py                     R², MAE, RMSE, MAPE, WAPE computation
+    predict.py                      predict_one(), predict_yield() with enrichment
+    registry.py                     save_model(), load_model(), load_metadata()
+
+  risk/
+    risk_score.py                   compute_risk() → RiskResult
+    thresholds.py                   RISK_WEIGHTS, level boundaries
+    recommendations.py              Plain-language advice from RiskResult
+
+  simulation/
+    what_if.py                      ScenarioChange, run_what_if(), apply_change()
+
+  explainability/
+    shap_explainer.py               explain_prediction(), global_importance()
+
+  optimization/
+    resource_optimizer.py           Budget allocation (mitigation actions)
+
+  database/
+    db.py                           SQLite connection
+    repository.py                   save_scenario(), list_scenarios()
+
+  visualization/
+    plots.py                        Plotly figure builders (reusable)
+
+  weather/
+    open_meteo.py                   Open-Meteo API client (live weather, unused)
+
+  utils/
+    exceptions.py                   Custom exception hierarchy
+    logger.py                       Logging setup
+
+data/
+  raw/crop_weather_records.csv      Primary dataset (31,365 records)
+  raw/district_coords.csv           District lat/lon coordinates
+  raw/icrisat_district.csv          ICRISAT district-level data
+  raw/nasa_weather_cache.csv        NASA POWER API weather cache
+  sample/crop_weather_synthetic.csv Synthetic fallback dataset
+  weather_impact.db                 SQLite scenario storage
+
+models/saved/
+  yield_model.joblib                Trained pipeline (Random Forest)
+  yield_model.json                  Metadata: algorithm, metrics, features, versions
+
+scripts/
+  train_model.py                    Train, evaluate, and save the model
+  generate_sample_data.py           Regenerate the synthetic dataset
+  fetch_nasa_weather.py             Pull weather data from NASA POWER API
+  seed_database.py                  Seed the SQLite database with sample scenarios
+  convert_icrisat.py                Convert raw ICRISAT CSV to project format
+  download_data.py                  General data downloader
+  download_era5.py                  ERA5 reanalysis data downloader
+
+notebooks/
+  01_eda.ipynb                      Exploratory data analysis
+  02_model_training.ipynb           Model training walkthrough
+  03_shap_analysis.ipynb            SHAP analysis and visualisation
+
+api/
+  main.py                           FastAPI application (future REST API)
+  routers/predict.py                POST /predict endpoint
+  routers/risk.py                   POST /risk endpoint
+  routers/simulate.py               POST /simulate endpoint
+
+docs/
+  architecture.md                   System architecture overview
+  methodology.md                    Data and modelling methodology
+  api.md                            REST API documentation
+  user_guide.md                     End-user guide
+```
+
+---
+
+## Python API
+
+```python
+from weather_impact.models.predict import predict_one
+from weather_impact.models.registry import load_model
+from weather_impact.risk.risk_score import compute_risk
+from weather_impact.risk.recommendations import recommendations
+from weather_impact.simulation.what_if import ScenarioChange, run_what_if
+from weather_impact.explainability.shap_explainer import explain_prediction
+import pandas as pd
+
+model = load_model("yield_model")
+
+# Enrichment fields are required by the model pipeline
+conditions = {
+    "crop_type":           "Rice",
+    "season":              "Kharif",
+    "temperature_c":       27.0,
+    "rainfall_mm":         1100.0,
+    "humidity_pct":        72.0,
+    # enrichment — computed automatically by the app's _enrich() helper
+    "year":                2017,
+    "district":            "Chitradurga",
+    "state":               "Karnataka",
+    "dist_crop_mean_yield": 3.07,
+}
+
+# Predict yield
+predicted = predict_one(model, conditions)   # → float (t/ha)
+
+# Score risk
+risk = compute_risk(conditions)
+# risk.score   → 0–100 float
+# risk.level   → "Low" | "Moderate" | "High" | "Severe"
+# risk.severity → {"temperature_c": 0.0, "rainfall_mm": 0.12, "humidity_pct": 0.0}
+# risk.direction → {"temperature_c": "ok", "rainfall_mm": "low", ...}
+
+# Get recommendations
+advice = recommendations(risk)   # → list[str]
+
+# Run a What-If scenario
+result = run_what_if(
+    model,
+    conditions,
+    ScenarioChange(temperature_delta_c=3.0, rainfall_change_pct=-20.0),
+)
+# result.baseline_yield   → float
+# result.scenario_yield   → float
+# result.yield_change_pct → float
+# result.baseline_risk    → float
+# result.scenario_risk    → float
+# result.risk_change      → float
+
+# Explain a prediction with SHAP
+contribs, base_value = explain_prediction(model, pd.DataFrame([conditions]))
+# contribs: DataFrame [feature, value, shap_value] sorted by |shap_value| desc
+# base_value + contribs["shap_value"].sum() == predicted
+```
+
+---
+
+## Scripts Reference
+
+| Script | Purpose |
+|---|---|
+| `scripts/train_model.py` | Train Random Forest and XGBoost, keep the best by R², save to `models/saved/` |
+| `scripts/generate_sample_data.py` | Generate `data/sample/crop_weather_synthetic.csv` (reproducible, seed 42) |
+| `scripts/fetch_nasa_weather.py` | Pull historical weather from NASA POWER API for Indian districts |
+| `scripts/seed_database.py` | Seed `data/weather_impact.db` with sample saved scenarios |
+| `scripts/convert_icrisat.py` | Convert raw ICRISAT CSV format to the project column schema |
+| `scripts/download_data.py` | General-purpose data downloader |
+| `scripts/download_era5.py` | Download ERA5 reanalysis weather data |
+
+### Retraining the model
+
+```bash
+# Retrain on the primary dataset (default)
+python scripts/train_model.py
+
+# Retrain on a specific file
+python scripts/train_model.py --data data/raw/crop_weather_records.csv
+
+# Compare all algorithms and keep the best
+python scripts/train_model.py --algorithm best
+```
+
+---
+
+## Development
+
+```bash
+# Install with dev dependencies
+pip install -e ".[dev]"
+
+# Run the test suite
+pytest
+
+# Lint
+ruff check src tests scripts
+
+# Run the app in development mode (auto-reloads on file save)
+streamlit run app.py
+```
+
+### Adding a new view
+
+1. Define `def render_<name>() -> None:` in `app.py`
+2. Add `("<key>", "<Label>")` to `_VIEWS` in the session state section
+3. Add an `elif _v == "<key>": render_<name>()` branch in the router at the bottom
+4. If the view needs Field Conditions in the sidebar, add `"<key>"` to the
+   `if st.session_state.view in (...)` check in the sidebar section
+
+### Adding a new crop profile
+
+Edit `src/weather_impact/config/crops.py` and add an entry to `CROP_PROFILES`:
+
+```python
+("NewCrop", "Kharif"): CropProfile(
+    temperature_c=(20.0, 32.0),
+    rainfall_mm=(400.0, 900.0),
+    humidity_pct=(50.0, 75.0),
+    base_yield_t_per_ha=3.0,
+),
+```
+
+The app, risk scorer, and Home page crop table all update automatically.
+
+---
+
+## Requirements
+
+### Core (`requirements.txt`)
+
+| Package | Minimum version | Purpose |
+|---|---|---|
+| `pandas` | 2.2 | Data loading, filtering, aggregation |
+| `numpy` | 1.26 | Numerical operations, SHAP matrix handling |
+| `scikit-learn` | 1.5 | Pipeline, ColumnTransformer, RandomForest |
+| `xgboost` | 2.0 | Alternative regressor (trained, compared against RF) |
+| `shap` | 0.45 | SHAP TreeExplainer, feature attribution |
+| `joblib` | 1.4 | Model serialisation / deserialisation |
+| `streamlit` | 1.50 | Web application framework |
+| `plotly` | 5.20 | All charts — waterfall, bar, scatter, heatmap, gauge |
+
+### Dev (`requirements-dev.txt`)
+
+| Package | Minimum version | Purpose |
+|---|---|---|
+| `pytest` | 8.0 | Test runner |
+| `ruff` | 0.5 | Linter and formatter |
+
+### Installed versions (last training run)
+
+- scikit-learn 1.9.1
+- xgboost 3.4.1
